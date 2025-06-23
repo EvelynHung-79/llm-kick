@@ -46,30 +46,38 @@ def main():
     parser.add_argument("--cache_dir", default="/data/ajay_data/MCI/llm_weights", type=str )
     parser.add_argument("--prompt", default="None" , type=str)
     parser.add_argument("--model_type", default="vicuna7b" , type=str)
+    parser.add_argument("--model", default=None, type=str, help="Model name or path. If set, overrides model_type.")
     parser.add_argument("--num_examples", type=int, default=1000, help='Number of examples to run the evaluation.')
     parser.add_argument('--use_variant', action="store_true", help="whether to use the wanda variant described in the appendix")
+    parser.add_argument('--test_only', action="store_true", help="If set, only test the model without compression.")
     args = parser.parse_args()
 
     freebase_qa = FreebaseQA()
     freebase_filepath = "./datasets/freebase/FreebaseQA-train.json"
     exact_match = 0
 
-    if args.model_type == "vicuna7b":
-        args.model = "lmsys/vicuna-7b-v1.3"
-    elif args.model_type == "vicuna13b":
-        args.model = "lmsys/vicuna-13b-v1.3"
-    elif args.model_type == "vicuna33b":
-        args.model = "lmsys/vicuna-33b-v1.3"
-    elif args.model_type == "llama7b":
-        args.model = "decapoda-research/llama-7b-hf"
+    # Model selection logic
+    if args.model is not None:
+        model_name_for_log = args.model.split("/")[-1] if "/" in args.model else args.model
+        args.model = args.model
     else:
-        args.model = "lmsys/vicuna-7b-v1.3"
+        if args.model_type == "vicuna7b":
+            args.model = "lmsys/vicuna-7b-v1.3"
+        elif args.model_type == "vicuna13b":
+            args.model = "lmsys/vicuna-13b-v1.3"
+        elif args.model_type == "vicuna33b":
+            args.model = "lmsys/vicuna-33b-v1.3"
+        elif args.model_type == "llama7b":
+            args.model = "decapoda-research/llama-7b-hf"
+        else:
+            args.model = "lmsys/vicuna-7b-v1.3"
+        model_name_for_log = args.model_type
 
     # Setting seeds for reproducibility
     np.random.seed(args.seed)
     torch.random.manual_seed(args.seed)
 
-    file_name = open(f"./logs/freebase_{args.model_type}_{args.prune_method}_{args.sparsity_ratio}_{args.sparsity_type}", "a")
+    file_name = open(f"./logs/freebase_{model_name_for_log}_{args.prune_method}_{args.sparsity_ratio}_{args.sparsity_type}", "a")
     print(f"{args}\n", file=file_name)
 
     # Handling n:m sparsity
@@ -77,7 +85,6 @@ def main():
     if args.sparsity_type != "unstructured":
         prune_n, prune_m = map(int, args.sparsity_type.split(":"))
 
-    model_name = args.model.split("/")[-1]
     print(f"loading llm model {args.model}")
     model = get_llm(args.model, args.cache_dir)
     model.eval()
@@ -90,7 +97,8 @@ def main():
         device = model.hf_device_map["lm_head"]
     print("use device ", device)
 
-    if args.sparsity_ratio != 0:
+    # Only prune if not test_only and sparsity_ratio != 0
+    if not args.test_only and args.sparsity_ratio != 0:
         print("pruning starts")
         if args.prune_method == "wanda":
             print("Pruning Wanda")
